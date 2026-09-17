@@ -1,0 +1,6 @@
+cd ~/napcat
+sudo docker compose restart napcat
+
+
+#QR code
+sudo docker logs --tail 80 napcat
