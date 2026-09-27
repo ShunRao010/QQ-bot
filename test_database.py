@@ -61,7 +61,8 @@ assert party["max_size"] == 5
 assert party["description"] == "测试队伍"
 assert party["status"] == "OPEN"
 assert party["created_at"] == created_at
-assert party["expires_at"] == created_at + 6 * 60 * 60
+assert party["start_at"] == created_at
+assert party["expires_at"] == party["start_at"] + 6 * 60 * 60
 
 assert len(members) == 1
 assert members[0]["user_id"] == 10001
@@ -84,7 +85,7 @@ party_id_3 = create_party(
 assert party_id_2 == 2
 assert party_id_3 == 3
 
-# #001 在 created_at + 6h 的前一秒仍然有效
+# #001 在 start_at + 6h 的前一秒仍然有效
 changed = expire_parties(
     group_id=123456,
     now=created_at + 6 * 60 * 60 - 1,

@@ -63,6 +63,7 @@ assert parse_create_command(
     "action": "create",
     "max_size": 5,
     "description": "深渊副本",
+    "start_time": None,
 }
 
 assert parse_create_command(
@@ -71,6 +72,7 @@ assert parse_create_command(
     "action": "create",
     "max_size": 10,
     "description": "晚上八点打深渊副本",
+    "start_time": None,
 }
 
 # 边界人数
@@ -266,6 +268,14 @@ assert parse_command("起队 5 晚上刷副本") == {
     "action": "create",
     "max_size": 5,
     "description": "晚上刷副本",
+    "start_time": None,
+}
+
+assert parse_command("起队 5 20:30 晚上刷副本") == {
+    "action": "create",
+    "max_size": 5,
+    "description": "晚上刷副本",
+    "start_time": "20:30",
 }
 
 assert parse_command("参加 #001") == {
@@ -301,5 +311,26 @@ assert parse_command("测试") is None
 assert parse_command("参加 001") is None
 assert parse_command("起队 1 人数错误") is None
 assert parse_command("") is None
+
+assert parse_create_command(
+    "起队 5 20:30 深渊副本"
+) == {
+    "action": "create",
+    "max_size": 5,
+    "description": "深渊副本",
+    "start_time": "20:30",
+}
+
+assert parse_create_command(
+    "起队 5 7:05 深渊副本"
+) == {
+    "action": "create",
+    "max_size": 5,
+    "description": "深渊副本",
+    "start_time": "07:05",
+}
+
+assert parse_create_command("起队 5 24:00 深渊副本") is None
+assert parse_create_command("起队 5 20:60 深渊副本") is None
 
 print("parser tests passed")

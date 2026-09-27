@@ -1,5 +1,6 @@
 import asyncio
 import time
+from datetime import datetime, timezone, timedelta
 
 from src.message_formatter import format_party
 from src.message_parser import extract_command, parse_command
@@ -14,6 +15,8 @@ from src.database import (
     join_party,
     leave_party,
     list_active_parties,
+    list_due_reminders,
+    mark_reminder_sent,
 )
 
 ALLOWED_GROUP_IDS = {
@@ -22,7 +25,7 @@ ALLOWED_GROUP_IDS = {
 
 HELP_TEXT = """组队Bot命令：
 
-@Bot 起队 <人数> <简介>
+@Bot 起队 <人数> [HH:MM] <简介>
 @Bot 参加 #ID
 @Bot 退出 #ID
 @Bot 查看 #ID
@@ -31,15 +34,19 @@ HELP_TEXT = """组队Bot命令：
 @Bot 帮助
 
 规则：
+
 - 所有命令必须 @Bot
 - 命令与参数之间必须有空格
 - 队伍编号必须使用 #001、#002 这样的格式
-- 队伍人数范围为 2–50 人
+- 队伍人数范围为 2–255 人
 - 创建者自动加入并占 1 个位置
 - 同一成员可以参加多个队伍
 - 队伍满员后不能继续加入
 - 创建者不能直接退出自己的队伍，需要解散队伍
-- 队伍创建后 6 小时自动过期
+- 起队时间使用 UTC+8，例如 20:30
+- 起队时间可以省略；省略时默认使用当前时间
+- 显式设置未来起队时间时，Bot 会在起队前 15 分钟提醒
+- 所有队伍均在起队时间后 6 小时自动过期
 - 已解散和已过期队伍不会出现在“队伍”列表中
 """
 
@@ -60,8 +67,64 @@ def get_error_message(exc: ValueError) -> str:
         error_code,
         "操作失败，请稍后重试。",
     )
+
+async def reminder_loop(client: OneBotClient) -> None:
+    while True:
+        now = int(time.time())
+
+        reminders = list_due_reminders(now)
+
+        for reminder in reminders:
+            group_id = reminder["group_id"]
+            party_id = reminder["party_id"]
+
+            if group_id not in ALLOWED_GROUP_IDS:
+                continue
+
+            try:
+                response = await client.send_group_message(
+                    group_id=group_id,
+                    message=(
+                        f"队伍 #{party_id:03d} "
+                        f"将在15分钟后起队。"
+                    ),
+                )
+
+                if (
+                    response.get("status") == "ok"
+                    and response.get("retcode") == 0
+                ):
+                    mark_reminder_sent(
+                        group_id=group_id,
+                        party_id=party_id,
+                    )
+
+                    print(
+                        f"reminder sent: "
+                        f"group={group_id} "
+                        f"party=#{party_id:03d}"
+                    )
+                else:
+                    print(
+                        f"reminder send failed: "
+                        f"group={group_id} "
+                        f"party=#{party_id:03d} "
+                        f"status={response.get('status')} "
+                        f"retcode={response.get('retcode')}"
+                    )
+
+            except Exception as exc:
+                print(
+                    f"reminder error: "
+                    f"group={group_id} "
+                    f"party=#{party_id:03d} "
+                    f"error={exc!r}"
+                )
+
+        await asyncio.sleep(10)
     
 async def run_bot(client: OneBotClient) -> None:
+    
     while True:
         event = await client.receive_event()
 
@@ -143,12 +206,40 @@ async def run_bot(client: OneBotClient) -> None:
             if not isinstance(creator_id, int):
                 continue
 
+            created_at = int(time.time())
+            start_at = None
+            if command["start_time"] is not None:
+                utc8 = timezone(timedelta(hours=8))
+
+                now_dt = datetime.fromtimestamp(
+                    created_at,
+                    tz=utc8,
+                )
+
+                hour_text, minute_text = command["start_time"].split(":")
+                hour = int(hour_text)
+                minute = int(minute_text)
+
+                start_dt = now_dt.replace(
+                    hour=hour,
+                    minute=minute,
+                    second=0,
+                    microsecond=0,
+                )
+
+                # 如果今天这个时间已经过去，则解释为明天同一时间
+                if start_dt <= now_dt:
+                    start_dt += timedelta(days=1)
+
+                start_at = int(start_dt.timestamp())
+
             party_id = create_party(
                 group_id=group_id,
                 creator_id=creator_id,
                 max_size=command["max_size"],
                 description=command["description"],
-                created_at=int(time.time()),
+                created_at=created_at,
+                start_at=start_at,
             )
 
             print(
@@ -454,12 +545,18 @@ async def run_bot(client: OneBotClient) -> None:
                         if party["status"] == "FULL"
                         else "招募中"
                     )
+                    utc8 = timezone(timedelta(hours=8))
+                    start_time = datetime.fromtimestamp(
+                        party["start_at"],
+                        tz=utc8,
+                    ).strftime("%H:%M")
 
                     lines.append(
                         f"#{party['party_id']:03d} "
                         f"[{status_label}] "
                         f"{party['member_count']}/{party['max_size']} "
-                        f"{party['description']}"
+                        f"{party['description']} "
+                        f"起队时间：{start_time}"
                     )
 
                 message = "\n".join(lines)
@@ -594,6 +691,7 @@ async def main() -> None:
 
     while True:
         client = OneBotClient()
+        reminder_task = None
 
         try:
             print("Connecting to OneBot...")
@@ -602,16 +700,16 @@ async def main() -> None:
             print("Bot connected.")
             reconnect_delay = 1
 
+            reminder_task = asyncio.create_task(
+                reminder_loop(client)
+            )
+
             await run_bot(client)
 
         except asyncio.CancelledError:
-            # systemd stop / task cancellation：
-            # 正常退出，不进入自动重连。
             raise
 
         except KeyboardInterrupt:
-            # 手动 Ctrl+C：
-            # 正常退出，不进入自动重连。
             raise
 
         except Exception as exc:
@@ -628,6 +726,14 @@ async def main() -> None:
             )
 
         finally:
+            if reminder_task is not None:
+                reminder_task.cancel()
+
+                try:
+                    await reminder_task
+                except asyncio.CancelledError:
+                    pass
+
             try:
                 await client.close()
             except Exception as exc:

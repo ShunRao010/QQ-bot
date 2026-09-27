@@ -88,17 +88,20 @@ def parse_create_command(command: str) -> dict | None:
     """
     Parse:
         起队 <人数> <简介>
+        起队 <人数> <HH:MM> <简介>
 
-    Example:
+    Examples:
         起队 5 深渊副本
+        起队 5 20:30 深渊副本
     """
 
-    parts = command.split(maxsplit=2)
+    parts = command.split(maxsplit=3)
 
-    if len(parts) != 3:
+    if len(parts) not in (3, 4):
         return None
 
-    action, size_text, description = parts
+    action = parts[0]
+    size_text = parts[1]
 
     if action != "起队":
         return None
@@ -111,6 +114,38 @@ def parse_create_command(command: str) -> dict | None:
     if not 2 <= max_size <= 50:
         return None
 
+    start_time = None
+
+    if len(parts) == 3:
+        description = parts[2]
+    else:
+        time_text = parts[2]
+        description = parts[3]
+
+        time_parts = time_text.split(":")
+
+        if len(time_parts) != 2:
+            return None
+
+        hour_text, minute_text = time_parts
+
+        if not (
+            hour_text.isdigit()
+            and minute_text.isdigit()
+        ):
+            return None
+
+        hour = int(hour_text)
+        minute = int(minute_text)
+
+        if not (
+            0 <= hour <= 23
+            and 0 <= minute <= 59
+        ):
+            return None
+
+        start_time = f"{hour:02d}:{minute:02d}"
+
     description = description.strip()
 
     if not 1 <= len(description) <= 100:
@@ -120,6 +155,7 @@ def parse_create_command(command: str) -> dict | None:
         "action": "create",
         "max_size": max_size,
         "description": description,
+        "start_time": start_time,
     }
 
 

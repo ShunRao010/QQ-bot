@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS parties (
     party_id INTEGER NOT NULL,
 
     creator_id INTEGER NOT NULL,
+    start_at INTEGER NOT NULL,
     max_size INTEGER NOT NULL,
     description TEXT NOT NULL,
 
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS parties (
 
     created_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL,
+    reminder_sent INTEGER NOT NULL DEFAULT 0,
     disbanded_at INTEGER,
 
     PRIMARY KEY (group_id, party_id),
@@ -75,7 +77,32 @@ def connect() -> sqlite3.Connection:
 def initialize_database() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        columns = {
+            row["name"]
+            for row in conn.execute(
+                "PRAGMA table_info(parties)"
+            ).fetchall()
+        }
 
+        if "start_at" not in columns:
+            conn.execute(
+                "ALTER TABLE parties ADD COLUMN start_at INTEGER"
+            )
+            conn.execute(
+                """
+                UPDATE parties
+                SET start_at = created_at
+                WHERE start_at IS NULL
+                """
+            )
+
+        if "reminder_sent" not in columns:
+            conn.execute(
+                """
+                ALTER TABLE parties
+                ADD COLUMN reminder_sent INTEGER NOT NULL DEFAULT 0
+                """
+            )
 
 def create_party(
     group_id: int,
@@ -83,6 +110,7 @@ def create_party(
     max_size: int,
     description: str,
     created_at: int,
+    start_at: int | None = None,
 ) -> int:
     description = description.strip()
 
@@ -92,7 +120,19 @@ def create_party(
     if not 1 <= len(description) <= 100:
         raise ValueError("description must be between 1 and 100 characters")
 
-    expires_at = created_at + 6 * 60 * 60
+    explicit_start_time = start_at is not None
+
+    if start_at is None:
+        start_at = created_at
+
+    expires_at = start_at + 6 * 60 * 60
+
+    # 只有显式设置、并且至少提前 15 分钟的队伍需要等待提醒。
+    # 其他情况直接标记为“不需要提醒”。
+    reminder_sent = 0 if (
+        explicit_start_time
+        and start_at - created_at >= 15 * 60
+    ) else 1
 
     with connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -141,9 +181,11 @@ def create_party(
                 description,
                 status,
                 created_at,
-                expires_at
+                start_at,
+                expires_at,
+                reminder_sent
             )
-            VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?)
+            VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)
             """,
             (
                 group_id,
@@ -152,7 +194,9 @@ def create_party(
                 max_size,
                 description,
                 created_at,
+                start_at,
                 expires_at,
+                reminder_sent,
             ),
         )
 
@@ -462,7 +506,9 @@ def get_party(
                 description,
                 status,
                 created_at,
+                start_at,
                 expires_at,
+                reminder_sent,
                 disbanded_at
             FROM parties
             WHERE group_id = ?
@@ -511,6 +557,7 @@ def list_active_parties(
                 p.description,
                 p.status,
                 p.created_at,
+                p.start_at,
                 p.expires_at,
                 COUNT(pm.user_id) AS member_count
             FROM parties AS p
@@ -527,6 +574,7 @@ def list_active_parties(
                 p.description,
                 p.status,
                 p.created_at,
+                p.start_at,
                 p.expires_at
             ORDER BY p.party_id ASC
             """,
@@ -636,6 +684,7 @@ def list_user_active_parties(
                 p.description,
                 p.status,
                 p.created_at,
+                p.start_at,
                 p.expires_at
             FROM party_members AS pm
             JOIN parties AS p
@@ -650,3 +699,41 @@ def list_user_active_parties(
         ).fetchall()
 
     return [dict(row) for row in rows]
+
+def list_due_reminders(
+    now: int,
+) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                group_id,
+                party_id,
+                start_at
+            FROM parties
+            WHERE status IN ('OPEN', 'FULL')
+              AND reminder_sent = 0
+              AND start_at - 15 * 60 <= ?
+              AND start_at > ?
+            ORDER BY start_at ASC
+            """,
+            (now, now),
+        ).fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def mark_reminder_sent(
+    group_id: int,
+    party_id: int,
+) -> None:
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE parties
+            SET reminder_sent = 1
+            WHERE group_id = ?
+              AND party_id = ?
+            """,
+            (group_id, party_id),
+        )

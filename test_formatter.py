@@ -24,6 +24,7 @@ party = {
     "description": "测试队伍",
     "status": "OPEN",
     "member_count": 2,
+    "start_at": 0,
 }
 
 result = format_party(
@@ -39,6 +40,7 @@ expected = """队伍 #001
 发起人：大可（奥苏斯）
 人数：2/5
 简介：测试队伍
+起队时间：08:00
 状态：招募中
 成员：
 1. 大可（奥苏斯）
