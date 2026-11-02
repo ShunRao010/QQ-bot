@@ -94,6 +94,11 @@ def parse_create_command(command: str) -> dict | None:
         起队 5 深渊副本
         起队 5 20:30 深渊副本
     """
+    command = command.strip()
+    if command == "起队":
+        return {
+            "action":"create_last",
+        }
 
     parts = command.split(maxsplit=3)
 

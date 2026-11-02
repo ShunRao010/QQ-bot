@@ -15,6 +15,20 @@ CREATE TABLE IF NOT EXISTS group_sequences (
     next_party_id INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS last_party_settings (
+    group_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+
+    max_size INTEGER NOT NULL,
+    start_time TEXT,
+    description TEXT NOT NULL,
+
+    PRIMARY KEY (group_id, user_id),
+
+    CHECK (max_size BETWEEN 2 AND 50),
+    CHECK (length(description) BETWEEN 1 AND 100)
+);
+
 CREATE TABLE IF NOT EXISTS parties (
     group_id INTEGER NOT NULL,
     party_id INTEGER NOT NULL,
@@ -737,3 +751,71 @@ def mark_reminder_sent(
             """,
             (group_id, party_id),
         )
+
+def save_last_party_settings(
+    group_id: int,
+    user_id: int,
+    max_size: int,
+    start_time: str | None,
+    description: str,
+) -> None:
+    description = description.strip()
+
+    if not 2 <= max_size <= 50:
+        raise ValueError("max_size must be between 2 and 50")
+
+    if not 1 <= len(description) <= 100:
+        raise ValueError("description must be between 1 and 100 characters")
+
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO last_party_settings (
+                group_id,
+                user_id,
+                max_size,
+                start_time,
+                description
+            )
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT (group_id, user_id)
+            DO UPDATE SET
+                max_size = excluded.max_size,
+                start_time = excluded.start_time,
+                description = excluded.description
+            """,
+            (
+                group_id,
+                user_id,
+                max_size,
+                start_time,
+                description,
+            ),
+        )
+
+
+def get_last_party_settings(
+    group_id: int,
+    user_id: int,
+) -> dict | None:
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                max_size,
+                start_time,
+                description
+            FROM last_party_settings
+            WHERE group_id = ?
+              AND user_id = ?
+            """,
+            (
+                group_id,
+                user_id,
+            ),
+        ).fetchone()
+
+    if row is None:
+        return None
+
+    return dict(row)

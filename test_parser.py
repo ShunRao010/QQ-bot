@@ -85,12 +85,33 @@ assert parse_create_command("起队 51 测试") is None
 assert parse_create_command("起队 abc 测试") is None
 
 # 缺少参数
-assert parse_create_command("起队") is None
 assert parse_create_command("起队 5") is None
 
 # 其他命令不能被误识别
 assert parse_create_command("参加 #001") is None
 assert parse_create_command("帮助") is None
+
+assert parse_create_command("起队") == {
+    "action": "create_last",
+}
+
+assert parse_create_command(
+    "起队 5 深渊副本"
+) == {
+    "action": "create",
+    "max_size": 5,
+    "description": "深渊副本",
+    "start_time": None,
+}
+
+assert parse_create_command(
+    "起队 5 20:30 深渊副本"
+) == {
+    "action": "create",
+    "max_size": 5,
+    "description": "深渊副本",
+    "start_time": "20:30",
+}
 
 assert parse_join_command(
     "参加 #001"

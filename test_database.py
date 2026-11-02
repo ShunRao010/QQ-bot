@@ -17,6 +17,8 @@ from src.database import (
     list_active_parties,
     handle_group_member_leave,
     list_user_active_parties,
+    get_last_party_settings,
+    save_last_party_settings,
 )
 
 if TEST_DB.exists():
@@ -537,6 +539,67 @@ assert user_party_ids == [
     multi_party_2,
 ]
 
+# 测试上一次起队输入模板
+last_settings_group = 888888
+last_settings_user = 777777
+
+# 第一次没有历史
+assert get_last_party_settings(
+    group_id=last_settings_group,
+    user_id=last_settings_user,
+) is None
+
+# 保存第一次模板
+save_last_party_settings(
+    group_id=last_settings_group,
+    user_id=last_settings_user,
+    max_size=5,
+    start_time="20:30",
+    description="晚上刷副本",
+)
+
+settings = get_last_party_settings(
+    group_id=last_settings_group,
+    user_id=last_settings_user,
+)
+
+assert settings == {
+    "max_size": 5,
+    "start_time": "20:30",
+    "description": "晚上刷副本",
+}
+
+# 同一群、同一用户再次起队，应覆盖旧模板
+save_last_party_settings(
+    group_id=last_settings_group,
+    user_id=last_settings_user,
+    max_size=3,
+    start_time="21:45",
+    description="新版队伍",
+)
+
+settings = get_last_party_settings(
+    group_id=last_settings_group,
+    user_id=last_settings_user,
+)
+
+assert settings == {
+    "max_size": 3,
+    "start_time": "21:45",
+    "description": "新版队伍",
+}
+
+# 不同群不能共享模板
+assert get_last_party_settings(
+    group_id=999999,
+    user_id=last_settings_user,
+) is None
+
+# 不同用户不能共享模板
+assert get_last_party_settings(
+    group_id=last_settings_group,
+    user_id=666666,
+) is None
 
 print("create_party sequence test passed")
 print(

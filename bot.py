@@ -17,6 +17,8 @@ from src.database import (
     list_active_parties,
     list_due_reminders,
     mark_reminder_sent,
+    get_last_party_settings,
+    save_last_party_settings,
 )
 
 ALLOWED_GROUP_IDS = {
@@ -196,6 +198,43 @@ async def run_bot(client: OneBotClient) -> None:
 
             continue
 
+        if command["action"]=="create_last":
+            group_id = event.get("group_id")
+            creator_id = event.get("user_id")
+
+            if not isinstance(group_id,int):
+                continue
+            if not isinstance(creator_id,int):
+                continue
+            settings = get_last_party_settings(
+               group_id=group_id,
+               user_id=creator_id,
+            )
+
+            if settings is None:
+                await client.send_group_message(
+                    group_id=group_id,
+                    message=(
+                        "你还没有上一次起队信息,"
+                        "请先使用完整的起队命令。"
+                    ),
+                )
+                continue
+
+            print(
+                f"reuse last party settings: "
+                f"group={group_id} "
+                f"user={creator_id} "
+                f"settings={settings!r}"
+            )
+
+            command = {
+                "action": "create",
+                "max_size": settings["max_size"],
+                "start_time": settings["start_time"],
+                "description": settings["description"],
+            }
+            
         if command["action"] == "create":
             group_id = event.get("group_id")
             creator_id = event.get("user_id")
@@ -240,6 +279,14 @@ async def run_bot(client: OneBotClient) -> None:
                 description=command["description"],
                 created_at=created_at,
                 start_at=start_at,
+            )
+
+            save_last_party_settings(
+                group_id=group_id,
+                user_id=creator_id,
+                max_size=command["max_size"],
+                start_time=command["start_time"],
+                description=command["description"],
             )
 
             print(
