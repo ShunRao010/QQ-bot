@@ -333,11 +333,39 @@ async def run_bot(client: OneBotClient) -> None:
             print("party_message:")
             print(party_message)
             
-            response = await client.send_group_message(
-                group_id=group_id,
-                message=party_message,
-            )
+            try:
+                use_at_all = await client.can_at_all(group_id)
 
+                if use_at_all:
+                    message = [
+                        {
+                            "type": "at",
+                            "data": {
+                                "qq": "all",
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "data": {
+                                "text": f"\n{party_message}",
+                            },
+                        },
+                    ]
+                else:
+                    message = party_message
+
+                response = await client.send_group_message(
+                    group_id=group_id,
+                    message=message,
+                )
+
+            except asyncio.TimeoutError:
+                print(
+                    f"create send_group_msg timed out: "
+                    f"party=#{party_id:03d} "
+                    f"group={group_id}"
+                )
+                continue
             print(
                 "send_group_msg:",
                 response.get("status"),

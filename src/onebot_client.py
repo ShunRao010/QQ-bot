@@ -127,6 +127,56 @@ class OneBotClient:
                 "no_cache": True,
             },
         )
+
+    async def can_at_all(
+        self,
+        group_id: int,
+    ) -> bool:
+        try:
+            response = await self.get_group_at_all_remain(
+                group_id
+            )
+        except Exception:
+            return False
+
+        if response.get("status") != "ok":
+            return False
+
+        data = response.get("data")
+
+        if not isinstance(data, dict):
+            return False
+
+        if not data.get("can_at_all", False):
+            return False
+
+        group_remain = data.get(
+            "remain_at_all_count_for_group",
+            0,
+        )
+
+        user_remain = data.get(
+            "remain_at_all_count_for_uin",
+            0,
+        )
+
+        return (
+            isinstance(group_remain, int)
+            and isinstance(user_remain, int)
+            and group_remain > 0
+            and user_remain > 0
+        )
+
+    async def get_group_at_all_remain(
+        self,
+        group_id: int,
+    ) -> dict[str, Any]:
+        return await self.call_action(
+            "get_group_at_all_remain",
+            {
+                "group_id": group_id,
+            },
+        )
     
     async def get_group_member_display_name(
         self,
@@ -157,7 +207,7 @@ class OneBotClient:
     async def send_group_message(
         self,
         group_id: int,
-        message: str,
+        message: str | list[dict[str,Any]],
     ) -> dict[str, Any]:
         if self.ws is None:
             raise RuntimeError("OneBot WebSocket is not connected")
